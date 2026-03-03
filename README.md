@@ -2,7 +2,7 @@
 
 A template for building a personal AI knowledge base that connects to Claude via MCP. Fork it, set it up, and your AI remembers you across every conversation.
 
-**Cost: $0.** Everything runs on free tiers.
+**Infrastructure cost: $0.** Everything runs on free tiers. You'll need a Claude subscription (~$20/month) to use MCP tools with any consistency.
 
 ## What You Get
 
@@ -36,7 +36,7 @@ cd second-brain-starter
 Free accounts on:
 - [GitHub](https://github.com) — you probably have this
 - [Supabase](https://supabase.com) — sign up with GitHub for easy linking
-- [Claude](https://claude.ai) — Pro subscription recommended but free works
+- [Claude](https://claude.ai) — Pro subscription recommended (~$20/month)
 
 You'll also need:
 - Node.js 18+ ([download](https://nodejs.org))
@@ -54,7 +54,7 @@ You ↔ Claude ↔ MCP Protocol ↔ Edge Function ↔ Supabase (Postgres DB)
 | **Supabase** | Database + edge function hosting | 500MB DB, 500K function calls/month |
 | **Edge Function** | MCP server — the bridge between Claude and your data | Runs on Supabase free tier |
 | **GitHub** | Version-controlled backup of your documents | Unlimited private repos |
-| **Claude** | Your AI assistant that reads/writes the knowledge base | Free tier or Pro |
+| **Claude** | Your AI assistant that reads/writes the knowledge base | Pro ~$20/month |
 
 ## MCP Tools
 
@@ -144,6 +144,10 @@ For a personal KB with a few dozen markdown files, this is fine. If you're stori
 **Edge function errors**
 - Check logs: Supabase dashboard → Edge Functions → Logs
 - Common cause: secrets not set. Re-run `supabase secrets set` commands.
+
+**Setup script curl errors (406 Not Acceptable)**
+- The MCP server requires `Accept: application/json, text/event-stream` header
+- The setup script handles this automatically, but if calling manually, include both Accept types
 
 ## Customizing
 

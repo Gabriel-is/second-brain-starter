@@ -72,6 +72,15 @@ confirm_continue() {
   fi
 }
 
+# Helper to extract JSON from SSE response.
+# The MCP server returns Server-Sent Events format:
+#   event: message
+#   data: {"jsonrpc":"2.0",...}
+# This extracts the JSON data line.
+parse_sse() {
+  grep '^data: ' | sed 's/^data: //'
+}
+
 # ─── Pre-flight Checks ─────────────────────────────────────────
 
 step "Pre-flight checks"
@@ -185,7 +194,7 @@ step "Step 3: Create database table"
 explain "This creates a 'documents' table in your Postgres database. Each row is one document with a name, content, and metadata. The unique constraint on 'name' is what makes upserts work — saving a document with an existing name updates it instead of creating a duplicate."
 
 info "Running migration..."
-supabase db push --project-ref "$PROJECT_REF"
+supabase db push
 success "Database table created."
 confirm_continue
 
@@ -200,8 +209,7 @@ supabase secrets set \
   SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_KEY" \
   GITHUB_PAT="$GITHUB_PAT" \
   GITHUB_OWNER="$GITHUB_OWNER" \
-  GITHUB_REPO="$GITHUB_REPO" \
-  --project-ref "$PROJECT_REF"
+  GITHUB_REPO="$GITHUB_REPO"
 
 success "Secrets stored."
 confirm_continue
@@ -212,7 +220,7 @@ step "Step 5: Deploy MCP server"
 
 explain "This uploads your edge function to Supabase's global network. The --no-verify-jwt flag means Claude can call it without a Supabase auth token — the server uses your service role key internally for database access."
 
-supabase functions deploy mcp --no-verify-jwt --project-ref "$PROJECT_REF"
+supabase functions deploy mcp --no-verify-jwt
 
 MCP_URL="${SUPABASE_URL}/functions/v1/mcp"
 success "MCP server deployed!"
@@ -236,10 +244,12 @@ seed_doc() {
   content=$(cat "$file")
 
   # Use the MCP server itself to seed documents — dogfooding!
+  # The MCP server uses Streamable HTTP transport, which requires
+  # the Accept header to include text/event-stream.
   local response
   response=$(curl -s -X POST "${MCP_URL}/mcp" \
     -H "Content-Type: application/json" \
-    -H "Accept: application/json" \
+    -H "Accept: application/json, text/event-stream" \
     -d "$(jq -n \
       --arg name "$name" \
       --arg content "$content" \
@@ -251,9 +261,9 @@ seed_doc() {
           name: "add_doc",
           arguments: { name: $name, content: $content }
         }
-      }')")
+      }')" | parse_sse)
 
-  if echo "$response" | grep -q "Saved"; then
+  if echo "$response" | jq -r '.result.content[0].text' 2>/dev/null | grep -q "Saved"; then
     success "  Seeded: $name"
   else
     warn "  May have failed: $name"
@@ -277,12 +287,12 @@ info "Testing MCP server..."
 
 RESPONSE=$(curl -s -X POST "${MCP_URL}/mcp" \
   -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/list"
-  }')
+  }' | parse_sse)
 
 if echo "$RESPONSE" | grep -q "list_docs"; then
   success "MCP server is responding. All 6 tools registered."

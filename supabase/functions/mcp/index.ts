@@ -16,9 +16,16 @@
  *   remove_doc  — delete a document
  *   commit_doc  — push a document to GitHub for version control
  *
+ * Key behaviors:
+ *   - add_doc auto-injects a <!-- doc-id: {uuid} --> header on new documents.
+ *     This enables collision detection if the same doc name is committed to
+ *     GitHub from multiple sources.
+ *   - Content size checks use byte length (not JS string length) so multi-byte
+ *     characters like emoji and CJK text are measured correctly.
+ *
  * Architecture:
- *   Claude ←→ MCP Protocol ←→ This Edge Function ←→ Supabase (Postgres DB)
- *                                                  ←→ GitHub (backup)
+ *   Claude <-> MCP Protocol <-> This Edge Function <-> Supabase (Postgres DB)
+ *                                                   <-> GitHub (backup)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -216,6 +223,12 @@ function createMcpServer(): McpServer {
   //
   // Documents added this way get tagged with repo="direct" to distinguish
   // them from documents that were synced from GitHub.
+  //
+  // Auto-injects a <!-- doc-id: {uuid} --> header on new documents.
+  // This invisible HTML comment enables collision detection — if the same
+  // document name is committed to GitHub from multiple sources, the doc-id
+  // lets you tell them apart. Documents that already have a doc-id header
+  // (e.g., re-saves of existing docs) keep their original ID.
   server.tool(
     "add_doc",
     "Add or update a document in the knowledge base. Upserts by name — if a document with that name exists, it gets overwritten.",
@@ -228,9 +241,12 @@ function createMcpServer(): McpServer {
       // verification), so without a size limit anyone with the URL could
       // fill your free-tier database (500MB).
       const MAX_CONTENT_BYTES = 512_000; // 500KB — generous for markdown
+
       // Use TextEncoder to get actual byte length, not JS string length.
       // String.length counts UTF-16 code units — emoji and CJK chars would
-      // slip past a naive .length check because they're multi-byte.
+      // slip past a naive .length check because they're multi-byte in UTF-8.
+      // Example: "Hello" is 5 bytes, but a single emoji like 🎉 is 4 bytes
+      // while String.length reports it as 2 (a surrogate pair).
       const contentBytes = new TextEncoder().encode(content).length;
       if (contentBytes > MAX_CONTENT_BYTES) {
         return {
@@ -242,9 +258,23 @@ function createMcpServer(): McpServer {
         };
       }
 
+      // Auto-inject doc-id if not already present.
+      // The doc-id is an invisible HTML comment at the top of the document.
+      // It survives markdown rendering (HTML comments are stripped by renderers)
+      // and provides a stable identity for the document content, independent
+      // of the filename. If a user re-saves a document that already has a
+      // doc-id, we preserve the existing one.
+      let finalContent = content;
+      if (!content.startsWith("<!-- doc-id:")) {
+        const docId = crypto.randomUUID();
+        finalContent = `<!-- doc-id: ${docId} -->\n${content}`;
+      }
+
       // Rough token estimate: ~4 characters per token for English text.
       // Not exact, but good enough for Claude to gauge document size.
-      const token_estimate = Math.ceil(content.length / 4);
+      // We estimate on finalContent (after doc-id injection) so the header
+      // is included in the count.
+      const token_estimate = Math.ceil(finalContent.length / 4);
 
       const { error } = await supabase
         .from("documents")
@@ -253,7 +283,7 @@ function createMcpServer(): McpServer {
             name,
             repo: "direct",
             path: name,
-            content,
+            content: finalContent,
             token_estimate,
             updated_at: new Date().toISOString(),
           },

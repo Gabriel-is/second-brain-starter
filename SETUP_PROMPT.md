@@ -12,7 +12,7 @@ Here's what I need to end up with:
 - My GitHub repo as a backup destination
 - You connected to the MCP server so you can use these tools
 
-I've already forked the repo from https://github.com/Entropy-Vibe/second-brain-starter
+I've already forked the repo from https://github.com/Gabriel-is/second-brain-starter
 
 Walk me through the setup step by step. At each step:
 1. Tell me what we're doing and why (I want to understand, not just copy-paste)
@@ -27,6 +27,7 @@ Here's what I know about the architecture:
 - The server is stateless — each request creates a fresh instance (correct for serverless)
 - GitHub backup works via the GitHub Contents API (base64-encoded file content)
 - The server is deployed with --no-verify-jwt so Claude can call it without auth tokens
+- New documents get a doc-id header injected automatically for collision detection
 
 The setup steps are:
 1. Create free accounts (GitHub, Supabase) — I may already have these
@@ -41,5 +42,10 @@ The setup steps are:
 10. Verify it works by listing documents
 
 OR I can run `./setup.sh` which does steps 4-8 automatically. Help me decide which path is right for me.
+
+Important notes:
+- The MCP server uses Streamable HTTP transport, so curl calls need `Accept: application/json, text/event-stream` header
+- The migration is idempotent — safe to re-run if something fails partway through
+- My Claude subscription needs to support MCP tools (Pro plan recommended)
 
 Let's start. What do I need to have ready before we begin?

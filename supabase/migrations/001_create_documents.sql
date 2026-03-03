@@ -2,6 +2,8 @@
 -- Stores markdown documents that make up your knowledge base.
 -- Documents can be added directly via Claude (add_doc tool) or
 -- committed to GitHub for backup (commit_doc tool).
+--
+-- This migration is idempotent — safe to re-run without errors.
 
 create table if not exists documents (
   id uuid primary key default gen_random_uuid(),
@@ -17,4 +19,11 @@ create table if not exists documents (
 create index if not exists idx_documents_name on documents(name);
 
 -- Upsert support — add_doc uses onConflict: "name" to update existing docs
-alter table documents add constraint uq_documents_name unique (name);
+-- Wrapped in a DO block so it doesn't fail if the constraint already exists
+-- (e.g., if you applied this migration manually via SQL editor first)
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'uq_documents_name') then
+    alter table documents add constraint uq_documents_name unique (name);
+  end if;
+end $$;
